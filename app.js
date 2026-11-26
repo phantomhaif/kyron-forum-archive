@@ -115,7 +115,12 @@ function preparePictures(content){
   for(const image of content.querySelectorAll('img')){
     const original=image.src;
     const match=original.match(/^https:\/\/kyron-forum-media\.pages\.dev\/([a-f0-9]{2})\/([a-f0-9]{64})\.(jpg|png|webp|gif|bmp)$/);
-    if(!match)continue;
+    if(!match){
+      if(/\/attachments\/[a-f0-9]{2}\/[a-f0-9]{64}\.(jpg|png|gif|webp|bmp)$/.test(original) && !image.closest('a')){
+        const full=link('',original);full.title='Открыть оригинал изображения';image.replaceWith(full);full.append(image);
+      }
+      continue;
+    }
     const preview='preview/'+match[1]+'/'+match[2]+'.webp';
     let outer=image.closest('a');
     if(!outer){
