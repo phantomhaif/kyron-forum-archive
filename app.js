@@ -3,6 +3,7 @@ const main=document.getElementById('main');
 const number=n=>n.toLocaleString('ru-RU');
 const normalized=s=>s.toLocaleLowerCase('ru').replaceAll('ё','е');
 let catalog, topics, revision=0, searchText='', filter='', groupCache=new Map();
+let searchMode='titles', bodyQuery='', searchCache=new Map();
 function el(tag,txt='',cls=''){
   const node=document.createElement(tag);
   if(txt)node.textContent=txt;
@@ -18,18 +19,48 @@ async function checked(url){
 function listPage(){
   document.title='Технический форум Kyron Clan — архив';
   main.replaceChildren(el('h1','Технический форум'),el('p',number(topics.size)+' тем · '+number(catalog.topics.reduce((n,t)=>n+t[4],0))+' сообщений','meta'));
-  const controls=el('div','','controls'),query=el('input'),forum=el('select'),out=el('div');
-  query.type='search';query.placeholder='Например, раздатка или D20DT';query.value=searchText;
+  const controls=el('div','','controls'),query=el('input'),forum=el('select'),mode=el('select'),out=el('div');
+  query.type='search';query.placeholder='Например, раздатка или D20DT';query.value=searchMode==='titles'?searchText:bodyQuery;
+  mode.append(new Option('В названиях тем','titles'),new Option('В тексте сообщений','body'));mode.value=searchMode;
   forum.append(new Option('Все разделы',''));
   const names=Object.entries(catalog.forums).sort((a,b)=>a[1].localeCompare(b[1],'ru'));
   const parents=new Set(catalog.topics.map(t=>String(t[2])));
   for(const [id,title] of names)if(parents.has(id))forum.append(new Option(title,id));
   forum.value=filter;
-  for(const [title,node] of [['Поиск по названию темы',query],['Раздел',forum]]){
+  for(const [title,node] of [['Поиск по форуму',query],['Где искать',mode],['Раздел',forum]]){
     const label=el('label',title);label.append(node);controls.append(label);
   }
   main.append(controls,out);
-  function update(){
+  let searchVersion=0,timer;
+  async function update(){
+    const version=++searchVersion;
+    clearTimeout(timer);filter=forum.value;
+    if(searchMode==='body'){
+      bodyQuery=query.value;out.replaceChildren();
+      const terms=[...new Set(normalized(bodyQuery).match(/[а-яa-z0-9]{2,40}/g)||[])];
+      if(!terms.length){out.append(el('p','Введите слово из сообщения, например «раздатка».'));return;}
+      out.append(el('p','Ищем по страницам обсуждений…'));
+      timer=setTimeout(async()=>{
+        try{
+          const results=await searchPages(terms);
+          if(version!==searchVersion||!out.isConnected)return;
+          const rows=[];let index=0;
+          for(const t of catalog.topics){
+            for(let pg=1;pg<=t[3];pg++,index++)if(results.has(index)&&(!filter||String(t[2])===filter))rows.push([t,pg]);
+          }
+          out.replaceChildren(el('p','Найдено страниц: '+number(rows.length),'meta'));
+          const ul=el('ul','','topics');out.append(ul);let shown=0;
+          const more=el('button','Показать ещё');
+          const append=()=>{
+            for(const [t,pg] of rows.slice(shown,shown+100)){
+              const li=el('li');li.append(link(t[1]+' · стр. '+pg,'#t/'+t[0]+'/'+pg),el('span',catalog.forums[t[2]],'meta'));ul.append(li);
+            }
+            shown+=100;if(shown<rows.length)out.append(more);else more.remove();
+          };
+          more.onclick=append;append();
+        }catch(e){if(version===searchVersion)out.replaceChildren(el('p','Не удалось загрузить поисковый индекс. Повторите поиск.'));}
+      },230);return;
+    }
     searchText=query.value;filter=forum.value;const q=normalized(searchText.trim());out.replaceChildren();
     for(const [id,title] of names){
       if(filter && filter!==id)continue;
@@ -48,7 +79,26 @@ function listPage(){
     }
     if(!out.childElementCount)out.append(el('p','Тем с таким названием не найдено.'));
   }
+  mode.onchange=()=>{searchMode=mode.value;update();};
   query.oninput=update;forum.onchange=update;update();
+}
+async function searchPages(terms){
+  const sets=await Promise.all(terms.map(async term=>{
+    let bucket=0;for(const c of term)bucket=(31*bucket+c.charCodeAt(0))%256;
+    if(!searchCache.has(bucket)){
+      const r=await checked('search/'+bucket+'.bin');
+      const shard=await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).json();
+      if(searchCache.size>=24)searchCache.clear();searchCache.set(bucket,shard);
+    }
+    const shard=searchCache.get(bucket),entry=Object.hasOwn(shard,term)?shard[term]:'';
+    const bytes=atob(entry),docs=new Set();let doc=0,shift=0,delta=0;
+    for(let i=0;i<bytes.length;i++){
+      const b=bytes.charCodeAt(i);delta+=(b&127)*(2**shift);
+      if(b&128)shift+=7;else{doc+=delta;docs.add(doc);delta=0;shift=0;}
+    }
+    return docs;
+  }));
+  sets.sort((a,b)=>a.size-b.size);return new Set([...sets[0]].filter(i=>sets.every(s=>s.has(i))));
 }
 function nav(t,page){
   const bar=el('div','','nav');
@@ -79,7 +129,7 @@ async function route(){
     const posts=groupCache.get(key)[page];if(!posts)throw Error();
     document.title=t[1]+' — Kyron Clan';
     const crumb=el('p','','crumb'),back=link(catalog.forums[t[2]]||'Каталог','#/');
-    back.onclick=()=>{searchText='';filter=String(t[2]);};
+    back.onclick=()=>{searchMode='titles';searchText='';filter=String(t[2]);};
     crumb.append(link('Все разделы','#/'),document.createTextNode(' / '),back);
     main.replaceChildren(crumb,el('h1',t[1]),link('Тема на исходном форуме',t[5],'meta'),nav(t,page));
     for(const [id,user,date,html] of posts){
