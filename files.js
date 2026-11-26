@@ -22,6 +22,7 @@ function update(){
   document.getElementById('file-status').textContent=terms.length?'Совпадений: '+count.toLocaleString('ru-RU'):'';
 }
 field.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(update,100);});
+if(field.value.trim())update();
 function deepLink(){
   const match=location.hash.match(/^#topic-\d+$/);
   if(match){const box=document.getElementById(match[0].slice(1));if(box){box.open=true;box.scrollIntoView();}}
