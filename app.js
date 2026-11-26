@@ -111,6 +111,25 @@ function nav(t,page){
   if(page<t[3])bar.append(link('Дальше →','#t/'+t[0]+'/'+(page+1)));
   return bar;
 }
+function preparePictures(content){
+  for(const image of content.querySelectorAll('img')){
+    const original=image.src;
+    const match=original.match(/^https:\/\/kyron-forum-media\.pages\.dev\/([a-f0-9]{2})\/([a-f0-9]{64})\.(jpg|png|webp|gif|bmp)$/);
+    if(!match)continue;
+    const preview='preview/'+match[1]+'/'+match[2]+'.webp';
+    let outer=image.closest('a');
+    if(!outer){
+      outer=link('',original);outer.title='Открыть оригинал изображения';image.replaceWith(outer);outer.append(image);
+    }else if(outer.href!==original){
+      outer.after(document.createTextNode(' '),link('Открыть сохранённое изображение',original,'meta'));
+    }
+    if(match[3]==='gif'){
+      image.onerror=()=>{image.onerror=null;image.src=preview;};
+    }else{
+      image.onerror=()=>{image.onerror=null;image.src=original;};image.src=preview;
+    }
+  }
+}
 async function route(){
   const current=++revision;
   try{
@@ -136,7 +155,7 @@ async function route(){
       const article=el('article'),head=el('div','','byline'),content=el('div','','post');article.id='p'+id;
       head.append(el('strong',user||'Участник форума'));
       if(date){const d=new Date(date);head.append(el('span',Number.isFinite(+d)?d.toLocaleDateString('ru-RU',{dateStyle:'long',timeZone:'Europe/Moscow'}):date,'meta'));}
-      head.append(link('#'+id,'#t/'+t[0]+'/'+page+'/'+id,'meta'));content.innerHTML=html;
+      head.append(link('#'+id,'#t/'+t[0]+'/'+page+'/'+id,'meta'));content.innerHTML=html;preparePictures(content);
       article.append(head,content);main.append(article);
     }
     if(!posts.length)main.append(el('p','В сохранённой версии этой страницы текст сообщений отсутствует.'));
